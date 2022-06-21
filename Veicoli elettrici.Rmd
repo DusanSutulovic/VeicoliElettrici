@@ -1,0 +1,303 @@
+---
+title: "Veicoli Elettrici"
+author: "Dusan Sutulovic (147116)"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library('dplyr')
+library('tidyr')
+library('ggplot2')
+library('ggrepel')
+library('tidyverse')
+```
+
+## Dati utilizzati
+### Importazione in R
+
+I dati sono provenenti da *ev-database.org* organizzati e memorizzati in un file di tipo csv. La tabella è reperibile su kaggle (https://www.kaggle.com/datasets/geoffnel/evs-one-electric-vehicle-dataset). I dati relativi alla seconda parte della relazione sono stati ottenuti da ACI (https://www.aci.it/laci/studi-e-ricerche/dati-e-statistiche/autoritratto/autoritratto-2021.html). Questo link è anche presente nel sito dell'ISTAT, viene segnalato tra le sorgenti della tabella presente al seguente link (http://dati.istat.it/Index.aspx?DataSetCode=DCIS_VEICOLIPRA#).
+
+```{r}
+dataEV<-read.csv("./Dataset/ElectricCarData_Norm.csv", header = TRUE)
+```
+
+### Natura dati presi in esame
+
+Il dataset utilizzato presenta vari dati relativi a modelli di macchine ad alimentazione elettrica, tra cui:
+
+- Marca e nome del modello
+- Accelerazione (0-100 km/h) e velocità massima
+- Autonomia ed efficienza energetica
+- Tipo di ricarica e tempo impiegato
+- Trazione
+- Tipo di presa elettrica
+- Tipo di carozzeria
+- Numero di posti
+- Prezzo in euro
+
+## Pulizia dei dati
+### Rimozione unità di misura
+
+Osservando le colonne dove vengono memorizzati dati di tipo numerico notiamo che sono presenti anche le unità di misura, che risultano essere superflue visto che sono omogenee per tutte le righe. Mostriamo ad esempio il contenuto della colonna riguardante l'accelerazione da 0-100 km/h.
+
+```{r}
+head(dataEV$Accel)
+```
+Questo avviene nelle colonne *Accel*, *TopSpeed*, *Range*, *Efficiency* e *FastCharge*.
+
+```{r echo=TRUE}
+dataEV$Accel<-as.numeric(gsub(" sec", "", dataEV$Accel))
+dataEV$TopSpeed<-as.numeric(gsub(" km/h", "", dataEV$TopSpeed))
+dataEV$Range<-as.numeric(gsub(" km", "", dataEV$Range))
+dataEV$Efficiency<-as.numeric(gsub(" Wh/km", "", dataEV$Efficiency))
+
+#Questa colonna contiene anche dei "-", che indicano che il dato per il record non è disponibile.
+#Lo sostituiamo con NA e poi rimuoviamo l'unità di misura
+dataEV$FastCharge[dataEV$FastCharge[] == "-"] <- NA
+dataEV$FastCharge<-as.numeric(gsub(" km/h", "", dataEV$FastCharge))
+```
+
+### Valori booleani
+
+Notiamo, in fine, che nella colonna relativa alla possibilità di ricaricare la vettura in maniera veloce i record sono popolati dalle stringhe "*Rapid charging possible*" e "*Rapid charging not possible*". Per comodità le sostiamo con dei valori di tipo booleano.
+
+```{r echo=TRUE}
+dataEV$RapidCharge[dataEV$RapidCharge[] == "Rapid charging possible"] <- TRUE
+dataEV$RapidCharge[dataEV$RapidCharge[] == "Rapid charging not possible"] <- FALSE
+```
+
+## Risultato pulizia
+
+Ora i dati sono stati puliti e sono utilizzabili ai fini di analisi, risultano essere in questa forma.
+
+```{r}
+head(dataEV)
+```
+
+## Aziende produttrici
+
+Una domanda che è naturale porsi sul tema è quali aziende hanno realizzato il maggior numero di modelli di automobili elettriche, fornendo varietà al mercato dei loro prodotti. Per rispondere a tale quesito osserviamo il grafico a torta che illustra il numero di modelli in produzione suddivisi in base al produttore.
+
+```{r echo=TRUE}
+dataEV %>%
+  group_by(Brand) %>%
+  summarise(count = n()) %>% 
+  arrange(-count) %>%
+
+  ggplot(aes(x = "" , y = count, fill = fct_inorder(Brand))) +
+  geom_col(width = 1, color = 1) +
+  coord_polar(theta = "y") +
+  guides(fill = guide_legend(title = "Brand")) +
+  theme_void() + ggtitle("Produttori di vetture elettriche")
+```
+
+Come è possibile osservare l'azienda con la più vasta gamma di veicoli elettrici prodotti risulta essere *Tesla*, e a seguire possiamo osservare alcuni marchi che operano soprattutto sui mercati delle automobili tradizionali. Si può notare, inoltre, che alcune aziende rinomate nel settore attualmente non sono ancora ancora entrate con molti modelli nel mercato delle automobili elettriche, rimanendo tra gli ultimi posti nella classifica del numero di modelli prodotti.
+
+## Tipi di macchina più popolari
+
+Osserviamo ora quale è il tipo di carrozzeria più adottato dai produttori di automobili elettriche.
+
+```{r echo=TRUE}
+dataEV %>%
+
+  ggplot() +
+  geom_bar(mapping = aes(x = BodyStyle)) + ggtitle("Tipi di carrozzeria delle vetture elettriche") +
+  labs(y = "Numero modelli", x = "Tipo di carrozzeria")
+```
+
+Le automobili di tipo *SUV* e *Hatchback* risultano essere le scelte più popolari tra i produttori.
+
+## Trazione
+
+Vediamo ora qual'è la scelta più popolare in termini di trazione dei veicoli.
+
+```{r echo=TRUE}
+dataEV %>%
+
+  ggplot() +
+  geom_bar(mapping = aes(x = PowerTrain)) + ggtitle("Distribuzione dei vari tipi di trazione") +
+  labs(y = "Numero modelli", x = "Trazione")
+```
+
+La scelta più ampiamente utilizzata è la trazione integrale, subito seguita dalla trazione anteriore.
+
+Vorremmo sapere, inoltre, come la trazione del veicolo influisce sulle prestazioni. Osserviamo come la trazione influisce sulla accelerazione.
+
+```{r echo=TRUE}
+dataEV %>%
+
+  ggplot() +
+  geom_boxplot(mapping = aes(x = reorder(PowerTrain, Accel, FUN = median), 
+                             y = Accel))   + ggtitle("Trazione e accelerazione") +
+  labs(y = "Accelerazione (sec)", x = "Trazione")
+
+```
+
+Vediamo, inoltre, i dati relativi alle velocità massime messi in relazione con la trazione.
+
+```{r echo=TRUE}
+dataEV %>%
+
+  ggplot() +
+  geom_boxplot(mapping = aes(x = reorder(PowerTrain, TopSpeed, FUN = median), 
+                             y = TopSpeed)) + ggtitle("Trazione e velocità") +
+  labs(y = "Velocità massima (km/h)", x = "Trazione")
+
+```
+
+Da questi dati è possibile osservare come il tipo di trazione che offre prestazioni più bilanciate e intermedie sia la *trazione posteriore*. La *trazione integrale* e la *trazione anteriore* offrono rispettivamente prestazioni migliori in velocità massima e accelerazione, compensando con prestazioni inferiori nella categoria in cui non eccellono.
+
+Osserviamo ora come impattano queste categorie sulle prestazioni energetiche.
+
+```{r echo=TRUE}
+dataEV %>%
+
+  ggplot() +
+  geom_boxplot(mapping = aes(x = reorder(PowerTrain, Efficiency, FUN = median), 
+                             y = Efficiency))  + ggtitle("Trazione ed efficienza")  +
+  labs(y = "Efficienza (Wh/km)", x = "Trazione")
+
+```
+
+Qui la divisione è decisamente più netta e si può osservare come la *trazione integrale* sia più efficiente energeticamente rispetto alle altre due categorie, che hanno prestazioni simili tra loro.
+
+Vediamo infine come queste caratteristiche impattino poi sul prezzo di vendita delle vetture.
+
+```{r echo=TRUE}
+dataEV %>%
+
+  ggplot() +
+  geom_boxplot(mapping = aes(x = reorder(PowerTrain, PriceEuro, FUN = median), 
+                             y = PriceEuro))  + ggtitle("Trazione e prezzo") +
+  labs(y = "Prezzo (€)", x = "Trazione")
+
+```
+
+Possiamo quindi osservare che, in generale, le macchine elettriche con la *trazione integrale* risultano avere prestazioni mediamente superiori agli altri tipi di modelli, con un conseguente costo maggiore.
+
+## Autonomia
+
+Ogni modello di automobile è caratterizzato, tra le altre cose, anche da un'autonomia, esprimibile come numero medio di km percorribili con una carica. Proviamo a verificare se ad un aumento di costo per una vettura aumenta anche l'autonomia.
+
+```{r echo=TRUE}
+dataEV %>%
+  
+  ggplot(mapping = aes(x = PriceEuro, y = Range)) +
+  geom_point(mapping = aes(colour = RapidCharge)) + 
+  geom_smooth()  + ggtitle("Autonomia e prezzo") +
+  labs(y = "Autonomia (km)", x = "Prezzo (€)")
+
+```
+
+Possiamo notare che l'autonomia media per fasce di prezzo più basse aumenta sicuramente con l'aumentare del prezzo, ma anche che dai circa 50'000 € in sù questa non cambia in modo significativo. Da ciò possiamo dedurre che l'impatto che l'autonomia ha diminuisce con il crescere del prezzo. Vediamo, inoltre, che la tecnologia che permette la ricarica rapida della batteria non è presente solo in alcune tra le vetture più economiche.
+
+# Dati nazionali e mondiali sulle vetture
+
+## Italia
+
+Per prima cosa importiamo i dati reperiti da ISTAT per quanto riguarda le vetture. La fonte dei dati è Automobile Club d'Italia (ACI).
+```{r echo=TRUE}
+dataISTAT<-read.csv("./Dataset/ParcoVeicolareRegioni.csv", header = TRUE, skip = 1)
+```
+In questo dataset è rappresentato l'insieme dei veicoli che circolano sul territorio nazionale il 31 dicembre, questo dataset specifico si riferisce all'anno 2021.
+Vediamo quante sono le vetture elettriche rispetto alle vetture totali in Italia divisi per regione.
+
+```{r echo=TRUE}
+datiELETTRICO = dataISTAT %>%
+  filter(grepl('ELETTRICITA Totale', ALIMENTAZIONE)) %>%
+  filter(REGIONE != "NON DEFINITO Totale" & REGIONE != "ITALIA") %>%
+  select(REGIONE, TOTALE) %>%
+  mutate(Elettrico = TRUE)
+
+datiTOTALI = dataISTAT %>%
+  filter(grepl('*Totale', REGIONE)) %>%
+  filter(REGIONE != "NON DEFINITO Totale" & REGIONE != "ITALIA") %>%
+  select(REGIONE, TOTALE) %>%
+  mutate(Elettrico = FALSE)
+
+datiTOTALI$REGIONE <- (gsub(" Totale", "", datiTOTALI$REGIONE))
+
+bind_rows(datiTOTALI, datiELETTRICO) %>%
+  ggplot(aes(x = REGIONE, y = TOTALE)) +
+  geom_bar(aes(fill=Elettrico),
+           stat = "identity", 
+           position="dodge") +
+  coord_flip() + ggtitle("Automobili elettriche nel territorio nazionale, divise per regione")
+```
+
+Possiamo notare come le vetture elettriche siano la netta minoranza, nel grafico sono quasi impercettibili. Questo è dovuto alla enorme differenza negli ordini di grandezza di tali numeri, osserviamo ad esempio in *Lombardia* i numeri dei veicoli totali e quelli elettrici.
+
+```{r echo=TRUE}
+inner_join(datiTOTALI, datiELETTRICO, by = "REGIONE") %>%
+  select(REGIONE, TOTCOMPLESSIVO = TOTALE.x, TOTELETTRICO = TOTALE.y) %>%
+  filter(REGIONE == "LOMBARDIA")
+```
+
+Questo sicuramente dimostra come queste nuove tecnologie in ambito di motorizzazione devono ancora prendere piede e che la loro diffusione è minima in Italia al momento.
+
+## Unione Europea
+
+Per prima cosa importiamo i dati reperiti da Automobile Club d'Italia (ACI) per quanto riguarda le vetture in Europa.
+
+```{r echo=TRUE}
+dataVENDITE<-read.csv("./Dataset/Vendite_per_tipo_veicolo.csv", header = TRUE, skip = 2)
+```
+
+Possiamo osservare le vendite delle macchine elettriche in Italia rispetto all intera Unione Europea.
+
+```{r echo=TRUE}
+
+datiUE <-dataVENDITE %>%
+  select(COUNTRY, Elettriche2021) %>%
+  mutate(COUNTRY = fct_reorder(COUNTRY, Elettriche2021, .desc = FALSE))
+
+datiUE$Elettriche2021 = as.numeric(datiUE$Elettriche2021)
+
+ggplot(datiUE, aes(x = COUNTRY, y = Elettriche2021)) +
+  geom_bar(stat = "identity") +
+  coord_flip() + ggtitle("Automobili elettriche nell'UE") +
+  labs(y = "Numero di automobili immatricolate nel 2021", x = "Paese")
+
+```
+
+Proviamo a confrontare ora la vendita di automobili ad alimentazione alternativa con quelle a gasolio, in UE ed in Italia.
+
+```{r echo=TRUE}
+datiGASOLIO<-read.csv("./Dataset/Immatricolazioni_disel.csv", header = TRUE, skip = 2)
+
+datiGASOLIO = datiGASOLIO %>%
+  select(COUNTRY, Vendite = X2021) %>%
+  mutate(Tipo = "Gasolio")
+
+
+datiUEELETTRICO = dataVENDITE %>%
+  select(COUNTRY, Vendite = Elettriche2021) %>%
+  mutate(Tipo = "Elettrico")
+
+datiUEPLUGINELETTRICO = dataVENDITE %>%
+  select(COUNTRY, Vendite = Plug.in.ibrido.elettriche2021) %>%
+  mutate(Tipo = "Plug IN Elettrico")
+
+datiUEIBRIDOELETTRICHE = dataVENDITE %>%
+  select(COUNTRY, Vendite = Ibrido.elettriche2021) %>%
+  mutate(Tipo = "Ibrido Elettriche")
+
+datiUEGAS = dataVENDITE %>%
+  select(COUNTRY, Vendite = Metano.gpl.etanolo2021) %>%
+  mutate(Tipo = "GAS")
+
+bind_rows(datiGASOLIO, datiUEELETTRICO, datiUEPLUGINELETTRICO, datiUEIBRIDOELETTRICHE, datiUEGAS) %>%
+  filter(COUNTRY == "EUROPEAN UNION" | COUNTRY == "Italy") %>%
+  ggplot(aes(x = COUNTRY, y = Vendite)) +
+  geom_bar(aes(fill=Tipo),
+           stat = "identity", 
+           position="dodge") + ggtitle("Confronto tra UE e Italia in immatricolazioni di nuovi veicoli") +
+  labs(y = "Numero di automobili immatricolate nel 2021", x = "Area geografica")
+
+```
+
+Si può chiaramente vedere che il tipo di vettura più scelto dagli acquirenti sono le automobili ibride, che utilizzano sia l'energia elettrica che i carburanti tradizionali. In Italia, inoltre, il trend per gli acquisti sembra essere diverso da quello che vediamo per l'UE, infatti le vetture che utilizzano il gas in Italia sono più popolari delle vetture completamente elettriche e delle elettriche di tipo Plug In, mentre in UE il gas risiede all'ultimo posto tra i dati che abbiamo comparato.
